@@ -44,7 +44,7 @@ class FaceRater():
 
 
 def main():
-    dir_path = "faces"
+    dir_path = "faces_big"
     images = [f for f in listdir(dir_path) if isfile(join(dir_path, f))]
 
     rater = FaceRater()
@@ -56,7 +56,7 @@ def main():
         print(i)
         res.append((path, score))
     
-    with open('results.csv', 'wb') as f:
+    with open('results_big.csv', 'wb') as f:
         writer = csv.writer(f)
         # for path, score in res:
         writer.writerows(res)
