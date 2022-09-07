@@ -1,14 +1,15 @@
-import numpy as np
 import os
 import torch
-import torch.nn as nn
 import torchvision.transforms as transforms
-from PIL import Image
 import Nets
-from os import listdir
-from os.path import isfile, join
-import csv
-from itertools import izip
+import io
+import socket
+import struct
+
+from PIL import Image
+
+
+UNIX_SOCK_ADDR = '/code/socket.s'
 
 
 class FaceRater():
@@ -20,10 +21,10 @@ class FaceRater():
                 transforms.Resize(256),
                 transforms.CenterCrop(224),
                 transforms.ToTensor(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),])  
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),])
 
-    def read_img(self, filepath):
-        img = Image.open(filepath).convert('RGB')
+    def read_img(self, fp):
+        img = Image.open(fp).convert('RGB')
         if self.transform is not None:
             img = self.transform(img)
         return img
@@ -34,8 +35,8 @@ class FaceRater():
         model_dict.update(pretrained_dict)
         new.load_state_dict(model_dict)
 
-    def calculate_score(self, path):
-        img = self.read_img(path)
+    def calculate_score(self, fp):
+        img = self.read_img(fp)
         with torch.no_grad():
             img = img.unsqueeze(0)
             output = self.net(img).squeeze(1)
@@ -44,22 +45,30 @@ class FaceRater():
 
 
 def main():
-    dir_path = "faces_big"
-    images = [f for f in listdir(dir_path) if isfile(join(dir_path, f))]
+    try:
+        os.unlink(UNIX_SOCK_ADDR)
+    except OSError:
+        if os.path.exists(UNIX_SOCK_ADDR):
+            raise
 
     rater = FaceRater()
-    res = []
-    print("total images count: {}".format(str(len(images))))
-    for i, image in enumerate(images):
-        path = os.path.join(dir_path, image)
-        score = rater.calculate_score(path)
-        print(i)
-        res.append((path, score))
-    
-    with open('results_big.csv', 'wb') as f:
-        writer = csv.writer(f)
-        # for path, score in res:
-        writer.writerows(res)
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(UNIX_SOCK_ADDR)
+    server.listen(100)
+    while True:
+        conn, _ = server.accept()
+        try:
+            sz_data = struct.unpack('>I', conn.recv(4))
+            sz_data = sz_data[0]
+            buf = []
+            while len(buf) < sz_data:
+                datagram = conn.recv(2 ** 20)
+                buf.extend(datagram)
+            bts = io.BytesIO(''.join(buf))
+            score = rater.calculate_score(bts)
+            conn.sendall(struct.pack('>d', score))
+        finally:
+            conn.close()
     
 
 if __name__ == '__main__':
